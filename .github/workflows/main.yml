@@ -35,7 +35,6 @@ jobs:
       - name: Installer dépendances
         run: |
           pip install ruff
-
       # Étape 4 : analyse statique du code
       # Objectif : échouer rapidement si le code est non conforme
       - name: Linting + auto-fix
@@ -72,13 +71,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest
-
       # Exécution des tests unitaires
       # Ici : fonctions de transformation, nettoyage, calculs KPI
       - name: Lancer tests unitaires
         run: |
           pytest tests/unit
-
   # =====================================================
   # 3. TESTS D’INTÉGRATION (base de données + données)
   # =====================================================
@@ -104,13 +101,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest
-
       # Exécution des tests d’intégration
       # Objectif : tester les requêtes SQL, le schéma et les interactions réelles
       - name: Lancer tests d’intégration
         run: |
           pytest tests/integration
-
   # =====================================================
   # 4. TESTS DE PERFORMANCE (simples)
   # =====================================================
@@ -136,13 +131,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest pytest-benchmark
-
       # Exécution de benchmarks légers
       # Objectif : détecter des régressions de performance
       - name: Benchmarks légers
         run: |
           pytest tests/performance --benchmark-only
-
   # =====================================================
   # 5. DÉPLOIEMENT
   # =====================================================
@@ -162,13 +155,11 @@ jobs:
       - name: Déploiement en staging
         run: |
           echo "Déploiement en staging..."
-
       # Smoke tests post-déploiement
       # Vérification minimale : requêtes clés, KPIs critiques
       - name: Smoke tests
         run: |
           echo "Vérification requêtes clés & KPIs..."
-
       # Déploiement progressif en production
       # Exemple : canary à 10 % du trafic
       - name: Déploiement progressif en production
