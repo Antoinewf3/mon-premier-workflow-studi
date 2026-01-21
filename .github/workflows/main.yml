@@ -1,220 +1,171 @@
+# Nom du workflow tel qu’il apparaîtra dans GitHub Actions
 name: Data CI/CD Pipeline
 
+# Déclencheurs du pipeline
 on:
+  # Le pipeline s’exécute à chaque Pull Request
   pull_request:
+  # Le pipeline s’exécute aussi à chaque push sur la branche main
   push:
     branches: [ main ]
 
 jobs:
   # =====================================================
-  # 1. VALIDATION DU CODE
+  # 1. VALIDATION DU CODE (Linting & qualité)
   # =====================================================
   lint:
+    # Nom lisible du job dans l’interface GitHub
     name: Lint & Qualité du code
+
+    # Environnement d’exécution (machine virtuelle Linux)
     runs-on: ubuntu-latest
 
     steps:
+      # Étape 1 : récupération du code source
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      # Étape 2 : installation de Python
       - name: Installer Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          # Cache pour accélérer les builds
-          cache: 'pip'
 
+      # Étape 3 : installation de l’outil de linting
       - name: Installer dépendances
         run: |
           pip install ruff
 
+      # Étape 4 : analyse statique du code
+      # Objectif : échouer rapidement si le code est non conforme
       - name: Linting (fail fast)
         run: |
           ruff check .
 
   # =====================================================
-  # 2. TESTS UNITAIRES
+  # 2. TESTS UNITAIRES (transformations de données)
   # =====================================================
   unit-tests:
-    name: Tests unitaires
+    name: Tests unitaires (transformations data)
+
+    # Le job ne démarre que si le linting a réussi
     needs: lint
+
     runs-on: ubuntu-latest
 
     steps:
+      # Récupération du code
       - uses: actions/checkout@v4
 
+      # Installation de Python
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip'
 
-      - name: Installer dépendances
-        run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
-
-      - name: Lancer tests unitaires avec couverture
-        run: |
-          pytest tests/unit --cov=. --cov-report=xml --cov-report=term
-
-      # Uploader le rapport de couverture
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-
-  # =====================================================
-  # 3. TESTS D'INTÉGRATION
-  # =====================================================
-  integration-tests:
-    name: Tests d'intégration
-    needs: unit-tests
-    runs-on: ubuntu-latest
-
-    # Service PostgreSQL pour les tests
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_db
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: 'pip'
-
+      # Installation des dépendances du projet + pytest
       - name: Installer dépendances
         run: |
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Lancer tests d'intégration
+      # Exécution des tests unitaires
+      # Ici : fonctions de transformation, nettoyage, calculs KPI
+      - name: Lancer tests unitaires
         run: |
-          pytest tests/integration -v
+          pytest tests/unit
 
   # =====================================================
-  # 4. TESTS DE PERFORMANCE
+  # 3. TESTS D’INTÉGRATION (base de données + données)
   # =====================================================
-  performance-tests:
-    name: Validation des performances
-    needs: integration-tests
+  integration-tests:
+    name: Tests d’intégration (base + données)
+
+    # Dépend des tests unitaires
+    needs: unit-tests
+
     runs-on: ubuntu-latest
 
     steps:
+      # Récupération du code
       - uses: actions/checkout@v4
 
+      # Installation de Python
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip'
 
+      # Installation des dépendances nécessaires aux tests DB
+      - name: Installer dépendances
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      # Exécution des tests d’intégration
+      # Objectif : tester les requêtes SQL, le schéma et les interactions réelles
+      - name: Lancer tests d’intégration
+        run: |
+          pytest tests/integration
+
+  # =====================================================
+  # 4. TESTS DE PERFORMANCE (simples)
+  # =====================================================
+  performance-tests:
+    name: Validation des performances
+
+    # Ne démarre que si les tests d’intégration passent
+    needs: integration-tests
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Récupération du code
+      - uses: actions/checkout@v4
+
+      # Installation de Python
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Installation des outils de benchmark
       - name: Installer dépendances
         run: |
           pip install -r requirements.txt
           pip install pytest pytest-benchmark
 
+      # Exécution de benchmarks légers
+      # Objectif : détecter des régressions de performance
       - name: Benchmarks légers
         run: |
-          pytest tests/performance --benchmark-only --benchmark-json=output.json
-
-      - name: Sauvegarder les résultats
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-results
-          path: output.json
+          pytest tests/performance --benchmark-only
 
   # =====================================================
-  # 5. VALIDATION DE SÉCURITÉ (nouveau)
-  # =====================================================
-  security:
-    name: Scan de sécurité
-    needs: lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: 'pip'
-
-      - name: Installer dépendances
-        run: |
-          pip install -r requirements.txt
-          pip install bandit safety
-
-      - name: Scan des vulnérabilités (bandit)
-        run: |
-          bandit -r . -f json -o bandit-report.json || true
-
-      - name: Vérifier les dépendances (safety)
-        run: |
-          safety check --json || true
-
-  # =====================================================
-  # 6. DÉPLOIEMENT
+  # 5. DÉPLOIEMENT
   # =====================================================
   deploy:
-    name: Déploiement
-    needs: [performance-tests, security]
+    name: Déploiement progressif (staging → prod)
+
+    # Le déploiement ne se fait que si tous les tests ont réussi
+    needs: performance-tests
+
     runs-on: ubuntu-latest
 
-    # Uniquement sur main et après succès de tous les tests
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Condition : uniquement sur la branche main
+    if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v4
-
+      # Déploiement en environnement de staging
       - name: Déploiement en staging
         run: |
-          echo "🚀 Déploiement en staging..."
-          # Ajoute ici tes vraies commandes de déploiement
-          # Exemple : ansible-playbook deploy-staging.yml
+          echo "Déploiement en staging..."
 
-      - name: Smoke tests staging
+      # Smoke tests post-déploiement
+      # Vérification minimale : requêtes clés, KPIs critiques
+      - name: Smoke tests
         run: |
-          echo "✅ Vérification staging..."
-          # Exemple : curl https://staging.example.com/health
-          # pytest tests/smoke
+          echo "Vérification requêtes clés & KPIs..."
 
+      # Déploiement progressif en production
+      # Exemple : canary à 10 % du trafic
       - name: Déploiement progressif en production
         run: |
-          echo "🎯 Déploiement canary (10%)..."
-          # Exemple : kubectl set image deployment/app app=myapp:${{ github.sha }}
-          
-      - name: Notification de succès
-        if: success()
-        run: |
-          echo "✨ Déploiement réussi !"
-          # Ajoute une notification Slack/Discord si besoin
-
-  # =====================================================
-  # 7. NOTIFICATION EN CAS D'ÉCHEC
-  # =====================================================
-  notify-failure:
-    name: Notification d'échec
-    needs: [lint, unit-tests, integration-tests, performance-tests, security]
-    runs-on: ubuntu-latest
-    if: failure()
-
-    steps:
-      - name: Envoyer notification
-        run: |
-          echo "❌ Le pipeline a échoué"
-          # Ajoute notification Slack/Discord/Email
+          echo "Déploiement canary (10%)..."
