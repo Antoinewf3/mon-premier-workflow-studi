@@ -1,22 +1,220 @@
-name: Mon Premier Workflow
+name: Data CI/CD Pipeline
 
 on:
+  pull_request:
   push:
-  workflow_dispatch: 
+    branches: [ main ]
 
 jobs:
-  hello:
+  # =====================================================
+  # 1. VALIDATION DU CODE
+  # =====================================================
+  lint:
+    name: Lint & Qualité du code
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Dire bonjour
-      run: echo "Bonjour ! Ma première GitHub Action fonctionne 🎉"
-    
-    - name: Afficher la date
-      run: date
-    
-    - name: Afficher des infos système
-      run: |
-        echo "OS: $RUNNER_OS"
-        echo "Dépôt: $GITHUB_REPOSITORY"
-        echo "Branch: $GITHUB_REF"
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          # Cache pour accélérer les builds
+          cache: 'pip'
+
+      - name: Installer dépendances
+        run: |
+          pip install ruff
+
+      - name: Linting (fail fast)
+        run: |
+          ruff check .
+
+  # =====================================================
+  # 2. TESTS UNITAIRES
+  # =====================================================
+  unit-tests:
+    name: Tests unitaires
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Installer dépendances
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Lancer tests unitaires avec couverture
+        run: |
+          pytest tests/unit --cov=. --cov-report=xml --cov-report=term
+
+      # Uploader le rapport de couverture
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # =====================================================
+  # 3. TESTS D'INTÉGRATION
+  # =====================================================
+  integration-tests:
+    name: Tests d'intégration
+    needs: unit-tests
+    runs-on: ubuntu-latest
+
+    # Service PostgreSQL pour les tests
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Installer dépendances
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Lancer tests d'intégration
+        run: |
+          pytest tests/integration -v
+
+  # =====================================================
+  # 4. TESTS DE PERFORMANCE
+  # =====================================================
+  performance-tests:
+    name: Validation des performances
+    needs: integration-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Installer dépendances
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-benchmark
+
+      - name: Benchmarks légers
+        run: |
+          pytest tests/performance --benchmark-only --benchmark-json=output.json
+
+      - name: Sauvegarder les résultats
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: output.json
+
+  # =====================================================
+  # 5. VALIDATION DE SÉCURITÉ (nouveau)
+  # =====================================================
+  security:
+    name: Scan de sécurité
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Installer dépendances
+        run: |
+          pip install -r requirements.txt
+          pip install bandit safety
+
+      - name: Scan des vulnérabilités (bandit)
+        run: |
+          bandit -r . -f json -o bandit-report.json || true
+
+      - name: Vérifier les dépendances (safety)
+        run: |
+          safety check --json || true
+
+  # =====================================================
+  # 6. DÉPLOIEMENT
+  # =====================================================
+  deploy:
+    name: Déploiement
+    needs: [performance-tests, security]
+    runs-on: ubuntu-latest
+
+    # Uniquement sur main et après succès de tous les tests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Déploiement en staging
+        run: |
+          echo "🚀 Déploiement en staging..."
+          # Ajoute ici tes vraies commandes de déploiement
+          # Exemple : ansible-playbook deploy-staging.yml
+
+      - name: Smoke tests staging
+        run: |
+          echo "✅ Vérification staging..."
+          # Exemple : curl https://staging.example.com/health
+          # pytest tests/smoke
+
+      - name: Déploiement progressif en production
+        run: |
+          echo "🎯 Déploiement canary (10%)..."
+          # Exemple : kubectl set image deployment/app app=myapp:${{ github.sha }}
+          
+      - name: Notification de succès
+        if: success()
+        run: |
+          echo "✨ Déploiement réussi !"
+          # Ajoute une notification Slack/Discord si besoin
+
+  # =====================================================
+  # 7. NOTIFICATION EN CAS D'ÉCHEC
+  # =====================================================
+  notify-failure:
+    name: Notification d'échec
+    needs: [lint, unit-tests, integration-tests, performance-tests, security]
+    runs-on: ubuntu-latest
+    if: failure()
+
+    steps:
+      - name: Envoyer notification
+        run: |
+          echo "❌ Le pipeline a échoué"
+          # Ajoute notification Slack/Discord/Email
