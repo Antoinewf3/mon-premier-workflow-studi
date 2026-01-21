@@ -1,0 +1,3 @@
+# bandit.yaml
+# Bandit scanne des patterns sécurité (ex: secrets, exec, SQL injection, etc.)
+skips: []
