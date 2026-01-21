@@ -1,0 +1,22 @@
+name: Mon Premier Workflow
+
+on:
+  push:
+  workflow_dispatch: 
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Dire bonjour
+      run: echo "Bonjour ! Ma première GitHub Action fonctionne 🎉"
+    
+    - name: Afficher la date
+      run: date
+    
+    - name: Afficher des infos système
+      run: |
+        echo "OS: $RUNNER_OS"
+        echo "Dépôt: $GITHUB_REPOSITORY"
+        echo "Branch: $GITHUB_REF"
